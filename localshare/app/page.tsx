@@ -5,8 +5,10 @@ import { Wifi, Share2, Moon, Sun, Globe, Users, Loader2 } from "lucide-react";
 import FileUploader from "./components/FileUploader";
 import TransferProgress from "./components/TransferProgress";
 import ShareModal from "./components/ShareModal";
+import NetworkInfo from "./components/NetworkInfo";
 import { generateShareCode } from "./lib/utils/format";
 import { PeerConnection } from "./lib/webrtc/peer-connection";
+import { getLocalNetworkIP, getShareUrl } from "./lib/utils/network";
 
 interface Transfer {
   id: string;
@@ -27,10 +29,17 @@ export default function Home() {
   const [peerConnection, setPeerConnection] = useState<PeerConnection | null>(null);
   const [peerConnected, setPeerConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<string>("");
+  const [networkIP, setNetworkIP] = useState<string>("");
 
   useEffect(() => {
     const code = generateShareCode();
     setShareCode(code);
+
+    // 네트워크 IP 자동 감지
+    getLocalNetworkIP().then(ip => {
+      setNetworkIP(ip);
+      console.log('Detected network IP:', ip);
+    });
   }, []);
 
   useEffect(() => {
@@ -207,9 +216,7 @@ export default function Home() {
     }
   };
 
-  const shareUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/share/${shareCode}`
-    : "";
+  const shareUrl = shareCode ? getShareUrl(shareCode, networkIP) : "";
 
   return (
     <main className="min-h-screen p-6 md:p-8">
@@ -385,6 +392,9 @@ export default function Home() {
         isOpen={shareModalOpen}
         onClose={() => setShareModalOpen(false)}
       />
+
+      {/* Network Info */}
+      <NetworkInfo />
     </main>
   );
 }

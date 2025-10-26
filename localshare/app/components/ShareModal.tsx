@@ -127,9 +127,16 @@ export default function ShareModal({ shareCode, shareUrl, isOpen, onClose }: Sha
             </div>
           </div>
 
-          <p className="text-xs text-zinc-600 mt-6">
-            같은 네트워크에 연결된 디바이스에서 접속 가능
-          </p>
+          <div className="mt-6 space-y-2">
+            <p className="text-xs text-zinc-600">
+              같은 WiFi 네트워크에 연결된 디바이스에서 접속 가능
+            </p>
+            {shareUrl && (
+              <p className="text-xs text-zinc-500">
+                💡 팁: 다른 디바이스의 브라우저에서 위 링크를 직접 입력하세요
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
