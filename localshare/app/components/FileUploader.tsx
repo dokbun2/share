@@ -24,10 +24,13 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
     }
   }, []);
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (disabled) return;
+
+    // Prevent multiple clicks
     const fileInput = document.getElementById('file-upload') as HTMLInputElement;
-    if (fileInput) {
+    if (fileInput && !fileInput.disabled) {
       fileInput.click();
     }
   };
@@ -81,10 +84,11 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
           type="file"
           multiple
           onChange={handleFileInput}
-          className="sr-only"
+          className="sr-only pointer-events-none"
           id="file-upload"
           disabled={disabled}
           tabIndex={-1}
+          aria-hidden="true"
         />
 
         <div
