@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import { Upload, File, X, Folder } from "lucide-react";
 import { cn } from "@/app/lib/utils/cn";
 import { formatBytes } from "@/app/lib/utils/format";
@@ -13,6 +13,7 @@ interface FileUploaderProps {
 export default function FileUploader({ onFilesSelected, disabled }: FileUploaderProps) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -25,13 +26,14 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
   }, []);
 
   const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
+
     if (disabled) return;
 
-    // Prevent multiple clicks
-    const fileInput = document.getElementById('file-upload') as HTMLInputElement;
-    if (fileInput && !fileInput.disabled) {
-      fileInput.click();
+    // Use ref instead of getElementById
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
@@ -81,14 +83,13 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
         onClick={handleClick}
       >
         <input
+          ref={fileInputRef}
           type="file"
           multiple
           onChange={handleFileInput}
-          className="sr-only pointer-events-none"
+          className="sr-only"
           id="file-upload"
           disabled={disabled}
-          tabIndex={-1}
-          aria-hidden="true"
         />
 
         <div
