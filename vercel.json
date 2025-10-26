@@ -1,7 +1,3 @@
 {
-  "framework": "nextjs",
-  "buildCommand": "cd localshare && npm run build",
-  "outputDirectory": "localshare/.next",
-  "installCommand": "cd localshare && npm install",
-  "devCommand": "cd localshare && npm run dev"
+  "framework": "nextjs"
 }
