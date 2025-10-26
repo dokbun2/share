@@ -3,6 +3,5 @@
   "buildCommand": "cd localshare && npm run build",
   "outputDirectory": "localshare/.next",
   "installCommand": "cd localshare && npm install",
-  "devCommand": "cd localshare && npm run dev",
-  "rootDirectory": "localshare"
+  "devCommand": "cd localshare && npm run dev"
 }

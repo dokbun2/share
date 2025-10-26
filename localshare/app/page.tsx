@@ -71,12 +71,8 @@ export default function Home() {
     // If peer is already connected, start transfer immediately
     if (peerConnected && peerConnection && files.length > 0) {
       startFileTransfer(files);
-    } else if (files.length > 0 && !isWaitingForPeer && !peerConnected) {
-      // Auto-start sharing when files are selected
-      console.log('Files selected, starting P2P connection...');
-      setShareModalOpen(true);
-      initializeSharing();
     }
+    // Removed auto-start sharing to prevent multiple file dialogs
   };
 
   const initializeSharing = async () => {
