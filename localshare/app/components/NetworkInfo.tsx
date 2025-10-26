@@ -2,17 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { Wifi, Info } from "lucide-react";
-import { getLocalNetworkIP } from "@/app/lib/utils/network";
 
 export default function NetworkInfo() {
   const [networkIP, setNetworkIP] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    getLocalNetworkIP().then(ip => {
-      setNetworkIP(ip);
-      setIsLoading(false);
-    });
+    // Fetch network IP from API
+    fetch('/api/network')
+      .then(res => res.json())
+      .then(data => {
+        setNetworkIP(data.ip || 'localhost');
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error('Error fetching IP:', err);
+        setNetworkIP('localhost');
+        setIsLoading(false);
+      });
   }, []);
 
   return (

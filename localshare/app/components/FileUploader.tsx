@@ -24,6 +24,14 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
     }
   }, []);
 
+  const handleClick = () => {
+    if (disabled) return;
+    const fileInput = document.getElementById('file-upload') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.click();
+    }
+  };
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -67,21 +75,22 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDrop}
+        onClick={handleClick}
       >
         <input
           type="file"
           multiple
           onChange={handleFileInput}
-          className="hidden"
+          className="sr-only"
           id="file-upload"
           disabled={disabled}
+          tabIndex={-1}
         />
 
-        <label
-          htmlFor="file-upload"
+        <div
           className={cn(
-            "flex flex-col items-center justify-center p-12 cursor-pointer",
-            disabled && "cursor-not-allowed"
+            "flex flex-col items-center justify-center p-12",
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
           )}
         >
           <div className="rounded-full bg-zinc-800 p-6 mb-4">
@@ -94,7 +103,7 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
           <p className="text-sm text-zinc-500">
             최대 10GB까지 전송 가능
           </p>
-        </label>
+        </div>
       </div>
 
       {selectedFiles.length > 0 && (

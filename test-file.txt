@@ -1,0 +1,2 @@
+This is a test file for LocalShare P2P file sharing application.
+테스트 파일입니다.

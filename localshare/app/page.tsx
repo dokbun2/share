@@ -35,11 +35,17 @@ export default function Home() {
     const code = generateShareCode();
     setShareCode(code);
 
-    // 네트워크 IP 자동 감지
-    getLocalNetworkIP().then(ip => {
-      setNetworkIP(ip);
-      console.log('Detected network IP:', ip);
-    });
+    // 네트워크 IP 자동 감지 (API 사용)
+    fetch('/api/network')
+      .then(res => res.json())
+      .then(data => {
+        setNetworkIP(data.ip || 'localhost');
+        console.log('Detected network IP:', data.ip);
+      })
+      .catch(err => {
+        console.error('Error fetching IP:', err);
+        setNetworkIP('localhost');
+      });
   }, []);
 
   useEffect(() => {
@@ -65,6 +71,11 @@ export default function Home() {
     // If peer is already connected, start transfer immediately
     if (peerConnected && peerConnection && files.length > 0) {
       startFileTransfer(files);
+    } else if (files.length > 0 && !isWaitingForPeer && !peerConnected) {
+      // Auto-start sharing when files are selected
+      console.log('Files selected, starting P2P connection...');
+      setShareModalOpen(true);
+      initializeSharing();
     }
   };
 
@@ -164,7 +175,8 @@ export default function Home() {
 
   const startFileTransfer = async (files: File[]) => {
     if (!peerConnection || !peerConnection.isConnected()) {
-      console.error('Peer not connected');
+      console.log('Peer not connected yet. Please share the code with receiver first.');
+      setConnectionStatus('수신자 연결 대기 중...');
       return;
     }
 
