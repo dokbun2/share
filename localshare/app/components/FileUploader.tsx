@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState, useRef } from "react";
-import { Upload, File, X, Folder } from "lucide-react";
+import { Upload, File, X } from "lucide-react";
 import { cn } from "@/app/lib/utils/cn";
 import { formatBytes } from "@/app/lib/utils/format";
 
@@ -24,18 +24,6 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
       setDragActive(false);
     }
   }, []);
-
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (disabled) return;
-
-    // Use ref instead of getElementById
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -66,11 +54,29 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
     onFilesSelected(newFiles);
   };
 
+  const triggerFileInput = () => {
+    if (!disabled && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
   return (
     <div className="w-full">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={handleFileInput}
+        className="hidden"
+        disabled={disabled}
+        accept="*/*"
+      />
+
+      {/* Clickable upload area */}
       <div
         className={cn(
-          "relative rounded-2xl border-2 border-dashed transition-all duration-300 drop-zone",
+          "relative rounded-2xl border-2 border-dashed transition-all duration-300 drop-zone cursor-pointer",
           dragActive
             ? "border-white bg-white/10 dragging"
             : "border-zinc-700 hover:border-zinc-600 bg-zinc-900/50",
@@ -80,24 +86,9 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDrop}
-        onClick={handleClick}
+        onClick={triggerFileInput}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          onChange={handleFileInput}
-          className="sr-only"
-          id="file-upload"
-          disabled={disabled}
-        />
-
-        <div
-          className={cn(
-            "flex flex-col items-center justify-center p-12",
-            disabled ? "cursor-not-allowed" : "cursor-pointer"
-          )}
-        >
+        <div className="flex flex-col items-center justify-center p-12 pointer-events-none">
           <div className="rounded-full bg-zinc-800 p-6 mb-4">
             <Upload className="w-8 h-8 text-zinc-400" />
           </div>
@@ -111,6 +102,7 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
         </div>
       </div>
 
+      {/* Selected files list */}
       {selectedFiles.length > 0 && (
         <div className="mt-4 space-y-2">
           <p className="text-sm text-zinc-400 mb-2">
@@ -142,7 +134,10 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
                   </div>
                 </div>
                 <button
-                  onClick={() => removeFile(index)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeFile(index);
+                  }}
                   className="p-1 rounded-lg hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100"
                 >
                   <X className="w-4 h-4 text-zinc-500 hover:text-white" />
