@@ -49,23 +49,22 @@ export default function Home() {
       });
   }, []);
 
-  // shareCode가 설정된 후 자동으로 공유 시작
+  // shareCode가 설정된 후 자동으로 room만 생성 (연결은 버튼 클릭 시)
   useEffect(() => {
-    let mounted = true;
-    
-    if (shareCode && mounted) {
-      console.log('Auto-starting sharing with code:', shareCode);
-      // Small delay to ensure state is ready
-      const timer = setTimeout(() => {
-        if (mounted && !peerConnection) {
-          initializeSharing();
-        }
-      }, 100);
-      
-      return () => {
-        mounted = false;
-        clearTimeout(timer);
-      };
+    if (shareCode) {
+      console.log('🏠 Auto-creating room for code:', shareCode);
+      fetch('/api/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create-room', code: shareCode }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('✅ Room auto-created:', data);
+        })
+        .catch(err => {
+          console.error('❌ Error auto-creating room:', err);
+        });
     }
   }, [shareCode]);
 

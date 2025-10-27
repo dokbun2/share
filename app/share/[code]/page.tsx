@@ -138,7 +138,7 @@ export default function ShareReceivePage() {
 
       if (!checkData.exists) {
         console.error('❌ Room not found');
-        setError('공유 코드를 찾을 수 없습니다. 코드를 확인해주세요.');
+        setError('송신자가 아직 페이지를 열지 않았습니다. 송신자가 먼저 페이지를 열어주세요.');
         setStatus('error');
         return;
       }
