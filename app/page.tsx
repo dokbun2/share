@@ -370,9 +370,18 @@ export default function Home() {
       }, 1000);
 
     } catch (error) {
-      console.error('Error initializing sharing:', error);
+      console.error('❌ Error initializing sharing:', error);
       setIsWaitingForPeer(false);
-      setConnectionStatus("연결 실패");
+      setPeerConnected(false);
+      
+      let errorMessage = "연결 실패";
+      if (error instanceof Error) {
+        errorMessage = `연결 실패: ${error.message}`;
+        console.error('Error details:', error.stack);
+      }
+      
+      setConnectionStatus(errorMessage);
+      alert(`연결에 실패했습니다.\n\n${errorMessage}\n\n다시 시도해주세요.`);
     }
   };
 

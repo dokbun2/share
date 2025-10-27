@@ -111,12 +111,20 @@ export class PeerConnection {
 
       this.peer.on('error', (err) => {
         console.error('❌ P2P error:', err);
+        console.error('Error name:', err.name);
+        console.error('Error message:', err.message);
+        console.error('Error stack:', err.stack);
+        
         // Don't disconnect on minor errors
         if (err.message && err.message.includes('Ice connection failed')) {
           console.log('ICE connection issue, but data channel may still work');
         } else if (err.message && err.message.includes('User-Initiated Abort')) {
           console.log('Connection closed by user (normal)');
           this.connected = false;
+        } else if (err.message && err.message.includes('Connection failed')) {
+          console.error('Connection failed - possible network or firewall issue');
+          this.connected = false;
+          reject(new Error('WebRTC connection failed. Please check your network connection and firewall settings.'));
         } else if (this.connected) {
           console.log('Error occurred but connection is still active');
         } else {

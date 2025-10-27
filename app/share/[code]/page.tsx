@@ -262,8 +262,15 @@ export default function ShareReceivePage() {
         connectToPeer(peer, offer);
       }
     } catch (error) {
-      console.error('Error initializing receiver:', error);
-      setError('연결 중 오류가 발생했습니다.');
+      console.error('❌ Error initializing receiver:', error);
+      
+      let errorMessage = '연결 중 오류가 발생했습니다.';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        console.error('Error details:', error.stack);
+      }
+      
+      setError(errorMessage);
       setStatus('error');
     }
   };
