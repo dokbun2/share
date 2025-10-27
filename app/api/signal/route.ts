@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, code, data } = body;
 
+    console.log(`[Signal API] Action: ${action}, Code: ${code}`);
+
     switch (action) {
       case 'create-room': {
         // Create a new room with the code, or reset if it already exists

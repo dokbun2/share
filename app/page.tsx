@@ -214,9 +214,16 @@ export default function Home() {
       });
 
       // Generate offer
-      console.log('Generating offer...');
+      console.log('Generating WebRTC offer...');
       const offer = await peer.initialize();
-      console.log('Offer generated:', offer?.substring(0, 50) + '...');
+
+      if (!offer) {
+        throw new Error('Failed to generate WebRTC offer');
+      }
+
+      console.log('✅ Offer generated successfully');
+      console.log('Offer type:', JSON.parse(offer).type);
+      console.log('Offer length:', offer.length);
 
       // Send offer to signaling server
       console.log('Sending offer to signaling server...');
@@ -230,8 +237,13 @@ export default function Home() {
         }),
       });
 
+      if (!offerResponse.ok) {
+        const errorData = await offerResponse.json();
+        throw new Error(`Failed to send offer: ${errorData.error}`);
+      }
+
       const offerData = await offerResponse.json();
-      console.log('Send offer response:', offerData);
+      console.log('✅ Offer sent successfully:', offerData);
 
       setConnectionStatus("수신자를 기다리는 중...");
       console.log('Waiting for answer from receiver...');
@@ -266,22 +278,50 @@ export default function Home() {
 
           if (data.success && data.answer) {
             clearInterval(pollInterval);
-            console.log('✅ Answer received! Connecting to peer...');
-            console.log('Answer:', data.answer.substring(0, 50) + '...');
+            console.log('✅ Answer received from receiver!');
+
+            let parsedAnswer;
+            try {
+              parsedAnswer = JSON.parse(data.answer);
+              console.log('Answer type:', parsedAnswer.type);
+              console.log('Answer has SDP:', !!parsedAnswer.sdp);
+            } catch (e) {
+              console.error('Failed to parse answer:', e);
+              setIsWaitingForPeer(false);
+              setConnectionStatus("연결 실패: 잘못된 응답 형식");
+              return;
+            }
+
+            console.log('Applying answer to peer connection...');
             peer.connectToPeer(data.answer);
-            
-            // Check connection after a moment
-            setTimeout(() => {
+
+            // Set a timeout for connection
+            const connectionTimeout = setTimeout(() => {
+              if (!peer.isConnected()) {
+                console.error('⏱️ Connection timeout after receiving answer');
+                setIsWaitingForPeer(false);
+                setConnectionStatus("연결 시간 초과 - 네트워크를 확인해주세요");
+              }
+            }, 10000);
+
+            // Check connection status periodically
+            let checkCount = 0;
+            const checkInterval = setInterval(() => {
+              checkCount++;
               if (peer.isConnected()) {
-                console.log('🎉 Connection confirmed!');
+                console.log('🎉 P2P Connection established successfully!');
+                clearInterval(checkInterval);
+                clearTimeout(connectionTimeout);
                 setPeerConnected(true);
                 setIsWaitingForPeer(false);
                 setConnectionStatus("수신자와 연결됨 - 파일 전송 준비 완료");
+              } else if (checkCount >= 20) {
+                clearInterval(checkInterval);
+                console.log('⏳ Connection still pending after 10 seconds');
               } else {
-                console.log('⏳ Still establishing connection...');
+                console.log(`⏳ Checking connection... (${checkCount}/20)`);
               }
-            }, 1500);
-            // Connection event will also be handled by the callback
+            }, 500);
           }
         } catch (error) {
           console.error('Error polling for answer:', error);

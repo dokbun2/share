@@ -36,7 +36,17 @@ export class PeerConnection {
   }
 
   async initialize(signalData?: any): Promise<string | void> {
+    console.log(`[PeerConnection] Initializing as ${this.isInitiator ? 'initiator' : 'answerer'}`);
+    if (signalData) {
+      console.log('[PeerConnection] Received signal data:', signalData.type || 'unknown');
+    }
+
     return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        console.error('[PeerConnection] Initialization timeout after 30s');
+        reject(new Error('Peer initialization timeout'));
+      }, 30000);
+
       this.peer = new SimplePeer({
         initiator: this.isInitiator,
         trickle: false,
@@ -71,13 +81,14 @@ export class PeerConnection {
       });
 
       this.peer.on('signal', (data) => {
-        console.log('Signal generated:', data.type);
+        console.log('[PeerConnection] Signal generated:', data.type);
+        clearTimeout(timeoutId);
         resolve(JSON.stringify(data));
       });
 
       this.peer.on('connect', () => {
-        console.log('✅ P2P connection established!');
-        console.log('Data channel open and ready');
+        console.log('✅ [PeerConnection] P2P connection established!');
+        console.log('[PeerConnection] Data channel open and ready');
         this.connected = true;
         if (this.onConnected) {
           this.onConnected();

@@ -210,12 +210,30 @@ export default function ShareReceivePage() {
 
   const connectToPeer = async (peer: PeerConnection, offer: string) => {
     try {
-      console.log('📨 Received offer, generating answer...');
-      console.log('Offer:', offer.substring(0, 50) + '...');
+      console.log('=== connectToPeer called ===');
+      console.log('📨 Parsing offer...');
+
+      let parsedOffer;
+      try {
+        parsedOffer = JSON.parse(offer);
+        console.log('Offer type:', parsedOffer.type);
+        console.log('Offer has SDP:', !!parsedOffer.sdp);
+      } catch (e) {
+        console.error('Failed to parse offer:', e);
+        throw new Error('Invalid offer format');
+      }
 
       // Generate answer
-      const answer = await peer.initialize(JSON.parse(offer));
-      console.log('✅ Answer generated:', answer?.substring(0, 50) + '...');
+      console.log('Generating WebRTC answer...');
+      const answer = await peer.initialize(parsedOffer);
+
+      if (!answer) {
+        throw new Error('Failed to generate WebRTC answer');
+      }
+
+      console.log('✅ Answer generated successfully');
+      console.log('Answer type:', JSON.parse(answer).type);
+      console.log('Answer length:', answer.length);
 
       // Send answer to signaling server
       console.log('Sending answer to signaling server...');
@@ -229,29 +247,51 @@ export default function ShareReceivePage() {
         }),
       });
 
-      const responseData = await response.json();
-      console.log('Send answer response:', responseData);
-
-      if (responseData.success) {
-        console.log('✅ Answer sent successfully, waiting for connection...');
-        // Give it a moment for the connection to establish
-        setTimeout(() => {
-          if (peer.isConnected()) {
-            console.log('🎉 Connection confirmed!');
-            setStatus('connected');
-            setTimeout(() => setStatus('waiting'), 1000);
-          } else {
-            console.log('⏳ Still waiting for connection...');
-            setStatus('waiting');
-          }
-        }, 1000);
-      } else {
-        throw new Error('Failed to send answer');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Failed to send answer: ${errorData.error}`);
       }
-      // Connection event will be handled by the callback
+
+      const responseData = await response.json();
+      console.log('✅ Answer sent successfully:', responseData);
+
+      // Wait for connection to establish
+      console.log('Waiting for P2P connection to establish...');
+
+      // Set a timeout for connection
+      const connectionTimeout = setTimeout(() => {
+        if (!peer.isConnected()) {
+          console.error('⏱️ Connection timeout - P2P connection not established after 10s');
+          setError('연결 시간이 초과되었습니다. 네트워크 상태를 확인하고 다시 시도해주세요.');
+          setStatus('error');
+        }
+      }, 10000);
+
+      // Check connection status periodically
+      let checkCount = 0;
+      const checkInterval = setInterval(() => {
+        checkCount++;
+        if (peer.isConnected()) {
+          console.log('🎉 P2P connection established successfully!');
+          clearInterval(checkInterval);
+          clearTimeout(connectionTimeout);
+          setStatus('connected');
+          setTimeout(() => setStatus('waiting'), 1000);
+        } else if (checkCount >= 20) { // Stop checking after 10 seconds
+          clearInterval(checkInterval);
+        } else {
+          console.log(`⏳ Checking connection status... (${checkCount}/20)`);
+        }
+      }, 500);
+
     } catch (error) {
-      console.error('❌ Error connecting to peer:', error);
-      setError('P2P 연결에 실패했습니다.');
+      console.error('❌ Error in connectToPeer:', error);
+      if (error instanceof Error) {
+        console.error('Error details:', error.message, error.stack);
+        setError(`P2P 연결 실패: ${error.message}`);
+      } else {
+        setError('P2P 연결에 실패했습니다.');
+      }
       setStatus('error');
     }
   };
