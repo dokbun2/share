@@ -10,98 +10,23 @@ export default function ShareReceivePage() {
   const params = useParams();
   const code = params.code as string;
 
-  const [status, setStatus] = useState<'connecting' | 'connected' | 'waiting' | 'receiving' | 'completed' | 'error'>('connecting');
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'waiting' | 'receiving' | 'completed' | 'error'>('idle');
   const [progress, setProgress] = useState(0);
   const [receivedFiles, setReceivedFiles] = useState<File[]>([]);
   const [error, setError] = useState<string>("");
   const [peerConnection, setPeerConnection] = useState<PeerConnection | null>(null);
 
-  // Initial connection - only run once
+  // Don't auto-connect on mount - wait for user to click button
+  // Manual connection only
+
+  // Cleanup on unmount
   useEffect(() => {
-    if (code) {
-      console.log('🎬 Initial mount, starting receiver...');
-      initializeReceiver();
-    }
-  }, [code]);
-
-  // Visibility and reconnection handlers
-  useEffect(() => {
-    let isInitializing = false;
-    let reconnectTimeout: NodeJS.Timeout;
-
-    // Visibility change handler - reconnect when page becomes visible
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !isInitializing) {
-        console.log('� P age visible - checking connection...');
-        console.log('Current connection state:', peerConnection?.isConnected());
-
-        // Always try to reconnect when page becomes visible if not connected
-        if (!peerConnection || !peerConnection.isConnected()) {
-          console.log('🔄 Connection lost or not established, reconnecting...');
-          isInitializing = true;
-          setStatus('connecting');
-          setError('');
-
-          reconnectTimeout = setTimeout(() => {
-            initializeReceiver();
-            isInitializing = false;
-          }, 500);
-        } else {
-          console.log('✅ Connection still active, no need to reconnect');
-        }
-      } else if (document.visibilityState === 'hidden') {
-        console.log('📱 Page hidden - connection will be maintained');
-      }
-    };
-
-    // Page focus handler - also check connection
-    const handleFocus = () => {
-      if (!isInitializing) {
-        console.log('👁️ Page focused - checking connection...');
-        if (!peerConnection || !peerConnection.isConnected()) {
-          console.log('🔄 Reconnecting...');
-          isInitializing = true;
-          setStatus('connecting');
-          setError('');
-
-          reconnectTimeout = setTimeout(() => {
-            initializeReceiver();
-            isInitializing = false;
-          }, 500);
-        }
-      }
-    };
-
-    // Mobile-specific: handle page show event (back/forward cache)
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (event.persisted && !isInitializing) {
-        console.log('🔙 Page restored from cache - reconnecting...');
-        isInitializing = true;
-        setStatus('connecting');
-        setError('');
-
-        reconnectTimeout = setTimeout(() => {
-          initializeReceiver();
-          isInitializing = false;
-        }, 500);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('pageshow', handlePageShow);
-
     return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
+      if (peerConnection) {
+        peerConnection.disconnect();
       }
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('pageshow', handlePageShow);
-      // Don't disconnect on unmount to maintain connection
-      // peerConnection?.disconnect();
     };
-  }, [peerConnection, status]);
+  }, [peerConnection]);
 
   const initializeReceiver = async () => {
     try {
@@ -125,6 +50,9 @@ export default function ShareReceivePage() {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
+      setStatus('connecting');
+      setError('');
+
       // Check if room exists
       console.log('Checking if room exists...');
       const checkResponse = await fetch('/api/signal', {
@@ -138,7 +66,7 @@ export default function ShareReceivePage() {
 
       if (!checkData.exists) {
         console.error('❌ Room not found');
-        setError('송신자가 아직 페이지를 열지 않았습니다. 송신자가 먼저 페이지를 열어주세요.');
+        setError('송신자가 아직 연결을 시작하지 않았습니다. 송신자가 먼저 "연결 시작" 버튼을 눌러주세요.');
         setStatus('error');
         return;
       }
@@ -263,13 +191,13 @@ export default function ShareReceivePage() {
       }
     } catch (error) {
       console.error('❌ Error initializing receiver:', error);
-      
+
       let errorMessage = '연결 중 오류가 발생했습니다.';
       if (error instanceof Error) {
         errorMessage = error.message;
         console.error('Error details:', error.stack);
       }
-      
+
       setError(errorMessage);
       setStatus('error');
     }
@@ -332,6 +260,23 @@ export default function ShareReceivePage() {
         </div>
 
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-8">
+          {status === 'idle' && (
+            <div className="text-center">
+              <Wifi className="w-12 h-12 text-zinc-500 mx-auto mb-4" />
+              <p className="text-white font-medium mb-4">연결 준비</p>
+              <p className="text-sm text-zinc-500 mb-6">
+                송신자가 "연결 시작" 버튼을 누른 후<br/>
+                아래 버튼을 눌러 연결하세요
+              </p>
+              <button
+                onClick={() => initializeReceiver()}
+                className="px-8 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold transition-all shadow-lg hover:shadow-xl"
+              >
+                🔗 연결하기
+              </button>
+            </div>
+          )}
+
           {status === 'connecting' && (
             <div className="text-center">
               <Loader2 className="w-12 h-12 text-white animate-spin mx-auto mb-4" />
@@ -421,13 +366,12 @@ export default function ShareReceivePage() {
               <p className="text-sm text-zinc-500 mb-4">{error}</p>
               <button
                 onClick={() => {
-                  setStatus('connecting');
+                  setStatus('idle');
                   setError('');
-                  initializeReceiver();
                 }}
                 className="px-6 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium transition-colors"
               >
-                다시 연결
+                다시 시도
               </button>
             </div>
           )}
@@ -439,17 +383,16 @@ export default function ShareReceivePage() {
               <p className="text-xs text-zinc-500">
                 💡 팁: 송신자와 같은 WiFi 네트워크에 연결되어 있어야 합니다
               </p>
-              {status !== 'connecting' && status !== 'error' && (
+              {status !== 'connecting' && status !== 'idle' && (
                 <button
                   onClick={() => {
                     console.log('Manual reconnect triggered');
-                    setStatus('connecting');
+                    setStatus('idle');
                     setError('');
-                    initializeReceiver();
                   }}
                   className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
                 >
-                  🔄 재연결
+                  🔄 초기화
                 </button>
               )}
             </div>

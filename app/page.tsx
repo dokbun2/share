@@ -49,24 +49,8 @@ export default function Home() {
       });
   }, []);
 
-  // shareCode가 설정된 후 자동으로 room만 생성 (연결은 버튼 클릭 시)
-  useEffect(() => {
-    if (shareCode) {
-      console.log('🏠 Auto-creating room for code:', shareCode);
-      fetch('/api/signal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create-room', code: shareCode }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          console.log('✅ Room auto-created:', data);
-        })
-        .catch(err => {
-          console.error('❌ Error auto-creating room:', err);
-        });
-    }
-  }, [shareCode]);
+  // Room will be created when user clicks "연결 시작" button
+  // No auto-connection on mount
 
   useEffect(() => {
     if (darkMode) {
@@ -76,79 +60,15 @@ export default function Home() {
     }
   }, [darkMode]);
 
-  // Cleanup on unmount and handle visibility changes
+  // Cleanup on unmount
   useEffect(() => {
-    let isReconnecting = false;
-    let reconnectTimeout: NodeJS.Timeout;
-
-    // Visibility change handler - check connection when page becomes visible
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !isReconnecting) {
-        console.log('📱 Page visible - checking connection...');
-        if (!peerConnection || !peerConnection.isConnected()) {
-          console.log('🔄 Reconnecting sender...');
-          isReconnecting = true;
-          setPeerConnected(false);
-          setConnectionStatus('재연결 중...');
-          
-          reconnectTimeout = setTimeout(() => {
-            initializeSharing();
-            isReconnecting = false;
-          }, 500);
-        }
-      }
-    };
-
-    // Page focus handler
-    const handleFocus = () => {
-      if (!isReconnecting) {
-        console.log('👁️ Page focused - checking connection...');
-        if (!peerConnection || !peerConnection.isConnected()) {
-          console.log('🔄 Reconnecting sender...');
-          isReconnecting = true;
-          setPeerConnected(false);
-          setConnectionStatus('재연결 중...');
-          
-          reconnectTimeout = setTimeout(() => {
-            initializeSharing();
-            isReconnecting = false;
-          }, 500);
-        }
-      }
-    };
-
-    // Mobile-specific: handle page show event (back/forward cache)
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (event.persisted && !isReconnecting) {
-        console.log('🔙 Page restored from cache - reconnecting...');
-        isReconnecting = true;
-        setPeerConnected(false);
-        setConnectionStatus('재연결 중...');
-        
-        reconnectTimeout = setTimeout(() => {
-          initializeSharing();
-          isReconnecting = false;
-        }, 500);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('pageshow', handlePageShow);
-
     return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
+      // Cleanup peer connection on unmount
+      if (peerConnection) {
+        peerConnection.disconnect();
       }
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('pageshow', handlePageShow);
-      // Don't disconnect on unmount to try to maintain connection
-      // if (peerConnection) {
-      //   peerConnection.disconnect();
-      // }
     };
-  }, [peerConnection, peerConnected]);
+  }, [peerConnection]);
 
   const handleFilesSelected = async (files: File[]) => {
     // Append new files to existing ones instead of replacing
@@ -534,7 +454,18 @@ export default function Home() {
             {!peerConnected && !isWaitingForPeer && (
               <button
                 onClick={() => {
-                  console.log('Manual reconnect triggered');
+                  console.log('Manual connection triggered');
+                  initializeSharing();
+                }}
+                className="text-sm px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold transition-all shadow-lg hover:shadow-xl"
+              >
+                🚀 연결 시작
+              </button>
+            )}
+            {isWaitingForPeer && (
+              <button
+                onClick={() => {
+                  console.log('Reconnect triggered');
                   initializeSharing();
                 }}
                 className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
