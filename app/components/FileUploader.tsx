@@ -7,12 +7,14 @@ import { formatBytes } from "@/app/lib/utils/format";
 
 interface FileUploaderProps {
   onFilesSelected: (files: File[]) => void;
+  onClearAll?: () => void;
+  onRemoveFile?: (index: number) => void;
+  selectedFiles?: File[];
   disabled?: boolean;
 }
 
-export default function FileUploader({ onFilesSelected, disabled }: FileUploaderProps) {
+export default function FileUploader({ onFilesSelected, onClearAll, onRemoveFile, selectedFiles = [], disabled }: FileUploaderProps) {
   const [dragActive, setDragActive] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -36,9 +38,13 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
     }
   }, []);
 
-  const handleFiles = (files: File[]) => {
-    setSelectedFiles(files);
-    onFilesSelected(files);
+  const handleFiles = (newFiles: File[]) => {
+    // Pass new files to parent (parent will handle appending)
+    onFilesSelected(newFiles);
+    // Clear the file input to allow re-selection of the same files
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,9 +55,15 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
   };
 
   const removeFile = (index: number) => {
-    const newFiles = selectedFiles.filter((_, i) => i !== index);
-    setSelectedFiles(newFiles);
-    onFilesSelected(newFiles);
+    if (onRemoveFile) {
+      onRemoveFile(index);
+    }
+  };
+
+  const clearAllFiles = () => {
+    if (onClearAll) {
+      onClearAll();
+    }
   };
 
   const triggerFileInput = () => {
@@ -105,9 +117,22 @@ export default function FileUploader({ onFilesSelected, disabled }: FileUploader
       {/* Selected files list */}
       {selectedFiles.length > 0 && (
         <div className="mt-4 space-y-2">
-          <p className="text-sm text-zinc-400 mb-2">
-            선택된 파일 ({selectedFiles.length}개)
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <p className="text-sm text-zinc-400">
+                선택된 파일 ({selectedFiles.length}개)
+              </p>
+              <p className="text-xs text-zinc-500">
+                총 용량: {formatBytes(selectedFiles.reduce((acc, file) => acc + file.size, 0))}
+              </p>
+            </div>
+            <button
+              onClick={clearAllFiles}
+              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            >
+              모두 제거
+            </button>
+          </div>
           <div className="space-y-2">
             {selectedFiles.map((file, index) => (
               <div

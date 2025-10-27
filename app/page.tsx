@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Wifi, Share2, Moon, Sun, Globe, Users, Loader2 } from "lucide-react";
+import { Wifi, Moon, Sun, Globe, Users, Loader2, Send } from "lucide-react";
 import FileUploader from "./components/FileUploader";
 import TransferProgress from "./components/TransferProgress";
-import ShareModal from "./components/ShareModal";
 import NetworkInfo from "./components/NetworkInfo";
-import { generateShareCode } from "./lib/utils/format";
+import { generateShareCode, formatBytes } from "./lib/utils/format";
 import { PeerConnection } from "./lib/webrtc/peer-connection";
+import { cn } from "./lib/utils/cn";
 import { getLocalNetworkIP, getShareUrl } from "./lib/utils/network";
+import JSZip from "jszip";
 
 interface Transfer {
   id: string;
@@ -22,7 +23,6 @@ interface Transfer {
 export default function Home() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [shareCode, setShareCode] = useState<string>("");
-  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [isWaitingForPeer, setIsWaitingForPeer] = useState(false);
@@ -30,6 +30,7 @@ export default function Home() {
   const [peerConnected, setPeerConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<string>("");
   const [networkIP, setNetworkIP] = useState<string>("");
+  const [isCompressing, setIsCompressing] = useState(false);
 
   useEffect(() => {
     const code = generateShareCode();
@@ -48,6 +49,26 @@ export default function Home() {
       });
   }, []);
 
+  // shareCode가 설정된 후 자동으로 공유 시작
+  useEffect(() => {
+    let mounted = true;
+    
+    if (shareCode && mounted) {
+      console.log('Auto-starting sharing with code:', shareCode);
+      // Small delay to ensure state is ready
+      const timer = setTimeout(() => {
+        if (mounted && !peerConnection) {
+          initializeSharing();
+        }
+      }, 100);
+      
+      return () => {
+        mounted = false;
+        clearTimeout(timer);
+      };
+    }
+  }, [shareCode]);
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
@@ -56,33 +77,188 @@ export default function Home() {
     }
   }, [darkMode]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount and handle visibility changes
   useEffect(() => {
-    return () => {
-      if (peerConnection) {
-        peerConnection.disconnect();
+    let isReconnecting = false;
+    let reconnectTimeout: NodeJS.Timeout;
+
+    // Visibility change handler - check connection when page becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !isReconnecting) {
+        console.log('📱 Page visible - checking connection...');
+        if (!peerConnection || !peerConnection.isConnected()) {
+          console.log('🔄 Reconnecting sender...');
+          isReconnecting = true;
+          setPeerConnected(false);
+          setConnectionStatus('재연결 중...');
+          
+          reconnectTimeout = setTimeout(() => {
+            initializeSharing();
+            isReconnecting = false;
+          }, 500);
+        }
       }
     };
-  }, [peerConnection]);
+
+    // Page focus handler
+    const handleFocus = () => {
+      if (!isReconnecting) {
+        console.log('👁️ Page focused - checking connection...');
+        if (!peerConnection || !peerConnection.isConnected()) {
+          console.log('🔄 Reconnecting sender...');
+          isReconnecting = true;
+          setPeerConnected(false);
+          setConnectionStatus('재연결 중...');
+          
+          reconnectTimeout = setTimeout(() => {
+            initializeSharing();
+            isReconnecting = false;
+          }, 500);
+        }
+      }
+    };
+
+    // Mobile-specific: handle page show event (back/forward cache)
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted && !isReconnecting) {
+        console.log('🔙 Page restored from cache - reconnecting...');
+        isReconnecting = true;
+        setPeerConnected(false);
+        setConnectionStatus('재연결 중...');
+        
+        reconnectTimeout = setTimeout(() => {
+          initializeSharing();
+          isReconnecting = false;
+        }, 500);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+
+    return () => {
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+      // Don't disconnect on unmount to try to maintain connection
+      // if (peerConnection) {
+      //   peerConnection.disconnect();
+      // }
+    };
+  }, [peerConnection, peerConnected]);
 
   const handleFilesSelected = async (files: File[]) => {
-    setSelectedFiles(files);
+    // Append new files to existing ones instead of replacing
+    setSelectedFiles(prev => [...prev, ...files]);
+    // Don't start transfer automatically - wait for user to click transfer button
+  };
 
-    // If peer is already connected, start transfer immediately
-    if (peerConnected && peerConnection && files.length > 0) {
-      startFileTransfer(files);
+  const createZipFile = async (files: File[]): Promise<File> => {
+    const zip = new JSZip();
+
+    // Add all files to the zip
+    for (const file of files) {
+      const arrayBuffer = await file.arrayBuffer();
+      zip.file(file.name, arrayBuffer);
     }
-    // Removed auto-start sharing to prevent multiple file dialogs
+
+    // Generate the zip file
+    const zipBlob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 } // Medium compression for speed
+    });
+
+    // Create a File object from the Blob
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const zipFileName = `files_${timestamp}.zip`;
+    return new File([zipBlob], zipFileName, { type: 'application/zip' });
+  };
+
+  const handleSendFiles = async () => {
+    if (!peerConnection) {
+      setConnectionStatus('연결을 먼저 설정해주세요');
+      alert('수신자와의 연결이 필요합니다. 공유 버튼을 눌러 QR코드를 공유하세요.');
+      return;
+    }
+
+    if (!peerConnection.isConnected()) {
+      setConnectionStatus('수신자 연결 대기 중...');
+      alert('수신자가 아직 연결되지 않았습니다. QR코드를 스캔하거나 링크를 열어주세요.');
+      return;
+    }
+
+    if (selectedFiles.length === 0) {
+      setConnectionStatus('파일을 먼저 선택해주세요');
+      return;
+    }
+
+    try {
+      let filesToSend: File[];
+
+      // If multiple files, create a ZIP
+      if (selectedFiles.length > 1) {
+        setConnectionStatus('파일 압축 중...');
+        setIsCompressing(true);
+        const zipFile = await createZipFile(selectedFiles);
+        filesToSend = [zipFile];
+        setIsCompressing(false);
+        console.log(`Created ZIP file: ${zipFile.name} (${formatBytes(zipFile.size)})`);
+      } else {
+        filesToSend = selectedFiles;
+      }
+
+      setConnectionStatus('파일 전송 중...');
+      await startFileTransfer(filesToSend);
+      setConnectionStatus('전송 완료');
+    } catch (error) {
+      console.error('Transfer error:', error);
+      setConnectionStatus('전송 실패');
+      setIsCompressing(false);
+      alert('파일 전송 중 오류가 발생했습니다. 다시 시도해주세요.');
+    }
   };
 
   const initializeSharing = async () => {
-    if (!shareCode) return;
+    console.log('=== initializeSharing called ===');
+    console.log('shareCode:', shareCode);
+    console.log('peerConnection:', peerConnection);
+    console.log('isWaitingForPeer:', isWaitingForPeer);
+    console.log('peerConnected:', peerConnected);
+    
+    if (!shareCode) {
+      console.log('❌ No share code, skipping initialization');
+      return;
+    }
+
+    if (peerConnection && peerConnection.isConnected()) {
+      console.log('✅ Already connected, skipping initialization');
+      return;
+    }
 
     try {
+      console.log('🚀 Starting initialization with code:', shareCode);
+      
+      // Clean up old connection if exists
+      if (peerConnection) {
+        console.log('🧹 Cleaning up old peer connection...');
+        peerConnection.disconnect();
+        setPeerConnection(null);
+        // Wait a bit for cleanup
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
       setIsWaitingForPeer(true);
+      setPeerConnected(false);
       setConnectionStatus("공유 준비 중...");
+      console.log('📝 State updated: waiting for peer');
 
-      // Create room in signaling server
+      // Create room in signaling server (will reset if exists)
+      console.log('Creating/resetting room...');
       const createResponse = await fetch('/api/signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,12 +266,14 @@ export default function Home() {
       });
 
       const createData = await createResponse.json();
+      console.log('Create room response:', createData);
 
       if (!createData.success) {
         throw new Error('Failed to create room');
       }
 
       // Initialize peer connection as initiator
+      console.log('Initializing peer connection as offerer...');
       const peer = new PeerConnection(true);
       setPeerConnection(peer);
 
@@ -107,11 +285,23 @@ export default function Home() {
         );
       });
 
+      // Set up connection callback
+      peer.onConnectedCallback(() => {
+        console.log('✅ Sender: P2P connection established');
+        setPeerConnected(true);
+        setIsWaitingForPeer(false);
+        setConnectionStatus("수신자와 연결됨 - 파일 전송 준비 완료");
+        // Don't auto-start transfer - wait for user action
+      });
+
       // Generate offer
+      console.log('Generating offer...');
       const offer = await peer.initialize();
+      console.log('Offer generated:', offer?.substring(0, 50) + '...');
 
       // Send offer to signaling server
-      await fetch('/api/signal', {
+      console.log('Sending offer to signaling server...');
+      const offerResponse = await fetch('/api/signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,46 +311,63 @@ export default function Home() {
         }),
       });
 
+      const offerData = await offerResponse.json();
+      console.log('Send offer response:', offerData);
+
       setConnectionStatus("수신자를 기다리는 중...");
+      console.log('Waiting for answer from receiver...');
+
+      let pollCount = 0;
+      const maxPolls = 120; // 2 minutes
 
       // Poll for answer
       const pollInterval = setInterval(async () => {
-        const response = await fetch('/api/signal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'get-answer', code: shareCode }),
-        });
-
-        const data = await response.json();
-
-        if (data.success && data.answer) {
+        pollCount++;
+        
+        if (pollCount >= maxPolls) {
           clearInterval(pollInterval);
-          peer.connectToPeer(data.answer);
-
-          // Wait a bit for connection to establish
-          setTimeout(() => {
-            if (peer.isConnected()) {
-              setPeerConnected(true);
-              setIsWaitingForPeer(false);
-              setConnectionStatus("연결됨");
-
-              // If files are already selected, start transfer
-              if (selectedFiles.length > 0) {
-                startFileTransfer(selectedFiles);
-              }
-            }
-          }, 1000);
-        }
-      }, 1000);
-
-      // Timeout after 2 minutes
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        if (!peerConnected) {
+          console.error('❌ Polling timeout - no answer received');
           setIsWaitingForPeer(false);
           setConnectionStatus("연결 시간 초과");
+          return;
         }
-      }, 120000);
+
+        if (pollCount % 10 === 0) {
+          console.log(`Polling for answer... (${pollCount}/${maxPolls})`);
+        }
+
+        try {
+          const response = await fetch('/api/signal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'get-answer', code: shareCode }),
+          });
+
+          const data = await response.json();
+
+          if (data.success && data.answer) {
+            clearInterval(pollInterval);
+            console.log('✅ Answer received! Connecting to peer...');
+            console.log('Answer:', data.answer.substring(0, 50) + '...');
+            peer.connectToPeer(data.answer);
+            
+            // Check connection after a moment
+            setTimeout(() => {
+              if (peer.isConnected()) {
+                console.log('🎉 Connection confirmed!');
+                setPeerConnected(true);
+                setIsWaitingForPeer(false);
+                setConnectionStatus("수신자와 연결됨 - 파일 전송 준비 완료");
+              } else {
+                console.log('⏳ Still establishing connection...');
+              }
+            }, 1500);
+            // Connection event will also be handled by the callback
+          }
+        } catch (error) {
+          console.error('Error polling for answer:', error);
+        }
+      }, 1000);
 
     } catch (error) {
       console.error('Error initializing sharing:', error);
@@ -176,7 +383,7 @@ export default function Home() {
       return;
     }
 
-    // Create transfer entries
+    // Create transfer entries (append to existing ones for multiple batches)
     const newTransfers = files.map((file, index) => ({
       id: `transfer-${Date.now()}-${index}`,
       fileName: file.name,
@@ -186,39 +393,68 @@ export default function Home() {
       status: "pending" as const,
     }));
 
-    setTransfers(newTransfers);
+    setTransfers(prev => [...prev, ...newTransfers]);
+
+    const startIndex = transfers.length;
 
     // Send files sequentially
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      const transferIndex = startIndex + i;
+
+      // Check if connection is still alive
+      if (!peerConnection.isConnected()) {
+        console.error('Connection lost during transfer');
+        setConnectionStatus('연결이 끊어졌습니다');
+        setTransfers(prev =>
+          prev.map((t, index) =>
+            index >= transferIndex ? { ...t, status: "failed" as const } : t
+          )
+        );
+        break;
+      }
 
       setTransfers(prev =>
         prev.map((t, index) =>
-          index === i ? { ...t, status: "transferring" as const } : t
+          index === transferIndex ? { ...t, status: "transferring" as const } : t
         )
       );
 
       try {
+        // Set progress callback for this specific file
+        peerConnection.onProgressCallback((progress) => {
+          setTransfers(prev =>
+            prev.map((t, index) =>
+              index === transferIndex ? { ...t, progress } : t
+            )
+          );
+        });
+
         await peerConnection.sendFile(file);
 
         setTransfers(prev =>
           prev.map((t, index) =>
-            index === i ? { ...t, progress: 100, status: "completed" as const } : t
+            index === transferIndex ? { ...t, progress: 100, status: "completed" as const } : t
           )
         );
       } catch (error) {
         console.error('Error sending file:', error);
         setTransfers(prev =>
           prev.map((t, index) =>
-            index === i ? { ...t, status: "failed" as const } : t
+            index === transferIndex ? { ...t, status: "failed" as const } : t
           )
         );
+
+        // Continue with next file even if one fails
+        continue;
       }
     }
+
+    // Don't clear selected files - keep them visible
+    // User can manually remove them if needed
   };
 
   const handleStartSharing = () => {
-    setShareModalOpen(true);
     if (!isWaitingForPeer && !peerConnected) {
       initializeSharing();
     }
@@ -234,18 +470,11 @@ export default function Home() {
           <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600">
             <Globe className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">LocalShare</h1>
+          <h1 className="text-2xl font-bold text-white">툴비공유기</h1>
+          <span className="text-sm text-zinc-500">P2P 파일 공유</span>
         </div>
 
         <div className="flex items-center space-x-4">
-          <button
-            onClick={handleStartSharing}
-            className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors"
-          >
-            <Share2 className="w-4 h-4 text-zinc-400" />
-            <span className="text-sm text-white">{shareCode}</span>
-          </button>
-
           <button
             onClick={() => setDarkMode(!darkMode)}
             className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors"
@@ -282,39 +511,115 @@ export default function Home() {
               <>
                 <Wifi className="w-5 h-5 text-zinc-500" />
                 <span className="text-sm text-zinc-500">
-                  공유 버튼을 눌러 파일 전송을 시작하세요
+                  {peerConnection ? '연결 대기 중...' : '초기화 중...'}
                 </span>
               </>
             )}
           </div>
 
-          {isWaitingForPeer && (
-            <div className="text-xs text-zinc-500">
-              수신자: {shareUrl}
-            </div>
-          )}
+          <div className="flex items-center space-x-2">
+            {isWaitingForPeer && (
+              <div className="text-xs text-zinc-500">
+                수신자: {shareUrl}
+              </div>
+            )}
+            {!peerConnected && !isWaitingForPeer && (
+              <button
+                onClick={() => {
+                  console.log('Manual reconnect triggered');
+                  initializeSharing();
+                }}
+                className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+              >
+                🔄 재연결
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* File Upload Section */}
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 1. File Upload Section */}
+        <div className="space-y-6 order-1">
           <div>
-            <h2 className="text-lg font-semibold text-white mb-4">
-              파일 선택
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">
+                파일 선택
+              </h2>
+              {peerConnected ? (
+                <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-500">
+                  ✅ 수신자 연결됨
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-500">
+                  ⏳ 수신자 대기 중
+                </span>
+              )}
+            </div>
             <FileUploader
               onFilesSelected={handleFilesSelected}
+              onClearAll={() => setSelectedFiles([])}
+              onRemoveFile={(index) => setSelectedFiles(prev => prev.filter((_, i) => i !== index))}
+              selectedFiles={selectedFiles}
               disabled={false}
             />
+
+            {/* Send Button */}
+            {selectedFiles.length > 0 && (
+              <div className="mt-4 flex items-center justify-between p-4 rounded-xl bg-zinc-800/50 border border-zinc-700">
+                <div>
+                  <p className="text-sm text-white">
+                    {selectedFiles.length}개 파일 선택됨
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {formatBytes(selectedFiles.reduce((acc, file) => acc + file.size, 0))}
+                  </p>
+                  {selectedFiles.length > 1 && (
+                    <p className="text-xs text-blue-400 mt-1">
+                      💡 ZIP 파일로 압축하여 전송됩니다
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleSendFiles}
+                  disabled={!peerConnected || isCompressing}
+                  className={cn(
+                    "px-6 py-2 rounded-xl font-medium transition-all flex items-center space-x-2",
+                    peerConnected && !isCompressing
+                      ? "bg-blue-500 hover:bg-blue-600 text-white"
+                      : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
+                  )}
+                >
+                  {isCompressing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>압축 중...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>{peerConnected ? "파일 전송" : "연결 대기 중"}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Transfer List */}
           {transfers.length > 0 && (
             <div>
-              <h2 className="text-lg font-semibold text-white mb-4">
-                전송 목록
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white">
+                  전송 목록
+                </h2>
+                <button
+                  onClick={() => setTransfers([])}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                >
+                  모두 삭제
+                </button>
+              </div>
               <div className="space-y-3">
                 {transfers.map(transfer => (
                   <TransferProgress
@@ -332,16 +637,98 @@ export default function Home() {
           )}
         </div>
 
-        {/* Instructions Section */}
-        <div>
-          <h2 className="text-lg font-semibold text-white mb-4">
-            사용 방법
-          </h2>
-          <div className="space-y-4 p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800">
+        {/* 2. Share Code & QR Section */}
+        <div className="space-y-6 order-2">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">
+              공유 정보
+            </h2>
+
+            {/* QR Code */}
+            {shareUrl && (
+              <div className="flex justify-center mb-4">
+                <div className="p-3 bg-white rounded-xl">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(shareUrl)}`}
+                    alt="QR Code"
+                    className="w-36 h-36"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Share Code */}
+            <div className="mb-4">
+              <p className="text-xs text-zinc-500 mb-2">공유 코드</p>
+              <div className="flex items-center justify-center space-x-2">
+                <div className="px-4 py-2 bg-zinc-800 rounded-xl">
+                  <span className="text-xl font-mono font-bold text-white tracking-wider">
+                    {shareCode.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Share URL */}
+            {shareUrl && (
+              <div>
+                <p className="text-xs text-zinc-500 mb-2">공유 링크</p>
+                <div className="px-3 py-2 bg-zinc-800 rounded-lg overflow-hidden">
+                  <p className="text-xs text-white truncate">{shareUrl}</p>
+                </div>
+              </div>
+            )}
+
+            {peerConnected && (
+              <div className="mt-4 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                <div className="flex items-center space-x-2">
+                  <Users className="w-4 h-4 text-green-500" />
+                  <span className="text-xs text-green-500 font-medium">
+                    수신자 연결됨
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 p-3 rounded-lg bg-zinc-800/50">
+              <p className="text-xs text-zinc-500">
+                💡 모바일에서 QR코드를 스캔하거나 같은 WiFi에서 링크를 열어주세요
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Instructions Section */}
+        <div className="space-y-6 order-3">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">
+              사용 방법
+            </h2>
+            <div className="space-y-4">
             <div className="space-y-3">
               <div className="flex items-start space-x-3">
                 <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center text-xs font-bold">
                   1
+                </div>
+                <div>
+                  <p className="text-sm text-white font-medium">공유 코드 생성</p>
+                  <p className="text-xs text-zinc-500">상단의 공유 버튼을 눌러 QR코드와 링크 생성</p>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center text-xs font-bold">
+                  2
+                </div>
+                <div>
+                  <p className="text-sm text-white font-medium">수신자 연결</p>
+                  <p className="text-xs text-zinc-500">수신자가 QR코드 스캔 또는 링크로 접속</p>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center text-xs font-bold">
+                  3
                 </div>
                 <div>
                   <p className="text-sm text-white font-medium">파일 선택</p>
@@ -351,55 +738,35 @@ export default function Home() {
 
               <div className="flex items-start space-x-3">
                 <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center text-xs font-bold">
-                  2
+                  4
                 </div>
                 <div>
-                  <p className="text-sm text-white font-medium">공유 코드 전달</p>
-                  <p className="text-xs text-zinc-500">상단의 공유 버튼을 눌러 QR 코드나 링크 공유</p>
-                </div>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center text-xs font-bold">
-                  3
-                </div>
-                <div>
-                  <p className="text-sm text-white font-medium">자동 전송</p>
-                  <p className="text-xs text-zinc-500">수신자가 연결되면 자동으로 파일 전송 시작</p>
+                  <p className="text-sm text-white font-medium">파일 전송</p>
+                  <p className="text-xs text-zinc-500">"파일 전송" 버튼을 클릭하여 전송 시작</p>
                 </div>
               </div>
             </div>
-
-            {peerConnected && (
-              <div className="mt-4 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                <div className="flex items-center space-x-2">
-                  <Users className="w-4 h-4 text-green-500" />
-                  <span className="text-xs text-green-500 font-medium">
-                    수신자가 연결되었습니다
-                  </span>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
-
-          {selectedFiles.length > 0 && !peerConnected && (
-            <button
-              onClick={handleStartSharing}
-              className="w-full mt-6 px-6 py-3 rounded-xl bg-white text-black font-medium hover:bg-zinc-200 transition-colors"
-            >
-              파일 공유 시작
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Share Modal */}
-      <ShareModal
-        shareCode={shareCode}
-        shareUrl={shareUrl}
-        isOpen={shareModalOpen}
-        onClose={() => setShareModalOpen(false)}
-      />
+      {/* Debug Info */}
+      <div className="mt-6 p-4 rounded-xl bg-zinc-900/30 border border-zinc-800/50">
+        <p className="text-xs text-zinc-600 mb-2">디버그 정보:</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <p className="text-xs text-zinc-500">공유 코드: {shareCode}</p>
+            <p className="text-xs text-zinc-500">연결 상태: {peerConnected ? '✅ 연결됨' : '❌ 끊김'}</p>
+            <p className="text-xs text-zinc-500">대기 중: {isWaitingForPeer ? '예' : '아니오'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-500">Peer: {peerConnection ? '있음' : '없음'}</p>
+            <p className="text-xs text-zinc-500">네트워크 IP: {networkIP}</p>
+            <p className="text-xs text-zinc-500">상태: {connectionStatus || '대기'}</p>
+          </div>
+        </div>
+      </div>
 
       {/* Network Info */}
       <NetworkInfo />

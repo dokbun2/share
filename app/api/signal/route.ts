@@ -26,9 +26,16 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'create-room': {
-        // Create a new room with the code
+        // Create a new room with the code, or reset if it already exists
         if (rooms.has(code)) {
-          return NextResponse.json({ error: 'Room already exists' }, { status: 400 });
+          console.log('Room already exists, resetting...');
+          // Reset the room for reconnection
+          rooms.set(code, {
+            offererConnected: true,
+            answererConnected: false,
+            createdAt: Date.now(),
+          });
+          return NextResponse.json({ success: true, code, reset: true });
         }
 
         rooms.set(code, {
