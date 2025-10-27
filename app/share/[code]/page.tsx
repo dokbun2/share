@@ -54,7 +54,8 @@ export default function ShareReceivePage() {
       setError('');
 
       // Check if room exists
-      console.log('Checking if room exists...');
+      console.log('=== Checking if room exists ===');
+      console.log('Room code:', code);
       const checkResponse = await fetch('/api/signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -62,14 +63,18 @@ export default function ShareReceivePage() {
       });
 
       const checkData = await checkResponse.json();
-      console.log('Room check response:', checkData);
+      console.log('Room check response:', JSON.stringify(checkData, null, 2));
 
       if (!checkData.exists) {
         console.error('❌ Room not found');
+        console.error('Code used:', code);
+        console.error('Make sure sender created the room with this exact code');
         setError('송신자가 아직 연결을 시작하지 않았습니다. 송신자가 먼저 "연결 시작" 버튼을 눌러주세요.');
         setStatus('error');
         return;
       }
+
+      console.log('✅ Room found! Proceeding to join...');
 
       // Join room
       console.log('Joining room...');
@@ -304,6 +309,26 @@ export default function ShareReceivePage() {
               </div>
               <p className="text-white font-medium">파일 전송 대기 중...</p>
               <p className="text-sm text-zinc-500 mt-2">송신자가 파일을 선택하면 자동으로 다운로드됩니다</p>
+
+              {!peerConnection?.isConnected() && (
+                <div className="mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                  <p className="text-xs text-yellow-500 mb-2">⚠️ P2P 연결이 완료되지 않았습니다</p>
+                  <button
+                    onClick={() => {
+                      console.log('Manual reconnect from waiting state');
+                      setStatus('idle');
+                      setError('');
+                      if (peerConnection) {
+                        peerConnection.disconnect();
+                        setPeerConnection(null);
+                      }
+                    }}
+                    className="text-xs px-4 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-600 text-white font-medium transition-colors"
+                  >
+                    🔄 다시 연결하기
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
